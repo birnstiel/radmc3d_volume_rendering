@@ -5,11 +5,8 @@ import pkg_resources
 
 import numpy as np
 import matplotlib.pyplot as plt
-import astropy.constants as c
 
 from disklab import radmc3d as r3
-
-au = c.au.cgs.value
 
 # import argparse
 # parser = argparse.ArgumentParser()
@@ -22,7 +19,7 @@ src_dir = None
 def locate_src_dir(dir=None):
     global src_dir
     if dir is not None:
-        src_dir = dir
+        src_dir = os.path.expanduser(dir)
     elif src_dir is not None:
         print('src_dir already set. Change it by setting the `dir` keyword')
     else:
@@ -80,7 +77,11 @@ def write_sources(path):
 
 
 def radmc3d_setup(input_data, path='radmc3d_rendering_setup'):
-    """Write out the setup of radmc3d and call the raytracing.
+    """Write out the setup of radmc3d.
+
+    This includes writing the setup files (`write_setup_files`) and a guess
+    of the transfer fuction (`write_transfer_options`). You still need to write
+    the source files, compile and run.
 
     Args:
         input_data (str | dict): either a path to a npz file that contains the data
@@ -96,16 +97,18 @@ def radmc3d_setup(input_data, path='radmc3d_rendering_setup'):
     Returns: None
     """
     if isinstance(input_data, dict):
-        r_i  = input_data['r_i'] * au
+        r_i  = input_data['r_i']
         t_i  = input_data['t_i']
         p_i  = input_data['p_i']
         rhog = input_data['rho']
     elif isinstance(input_data, str):
         with np.load(input_data) as fid:
-            r_i  = fid['r_i'] * au
+            r_i  = fid['r_i']
             t_i  = fid['t_i']
             p_i  = fid['p_i']
             rhog = fid['rho']
+    else:
+        raise ValueError('input_data must be dict or path to existing file')
 
     n_t  = len(t_i) - 1
     #
@@ -213,19 +216,24 @@ def write_transfer_options(mean=1.0, sigma=10.0, path='.'):
         fid.write(f'transfer_density_sigm = {sigma:13.6e}\n')
 
 
-def callit(path):
-    path = Path(path)
+def callit(command=None, executable='./radmc3d', path=os.curdir):
+    """
+    Once the code is compiled and all input present, call the raytracing.
 
-    cwd = Path().cwd()
+    command : str
+        the radmc3d command to be executed
 
-    try:
-        os.chdir(path)
-        # r3.radmc3d('image lambda 10 sizeradian 0.2  incl 45 projection 1 locobsau 5 5 5 pointau 1 0 0 nofluxcons', executable='./radmc3d')
-        r3.radmc3d('image lambda 10 sizeradian 2 posang 180 projection 1 locobsau 0 0 .5 pointau -1 0 0 nofluxcons npix 400', executable='./radmc3d')
-    except Exception as e:
-        raise e
-    finally:
-        os.chdir(cwd)
+    executable : str
+        the command to run radmc3d (=path to the radmc3d executable)
+
+    path : str
+        path to the working directory where radmc3d is called
+
+    """
+    if command is None:
+        command = 'image lambda 10 sizeradian 2 posang 180 projection 1 locobsau 0 0 .5 pointau -1 0 0 nofluxcons npix 400'
+
+    r3.radmc3d(command, executable=executable, path=path)
 
 
 def plotit(path='.', log=False, **kwargs):
@@ -238,9 +246,9 @@ def plotit(path='.', log=False, **kwargs):
         kwargs['cmap'] = 'Reds'
 
     if log:
-        plt.imshow(np.log10(im.image.T), vmin=np.log10(vmin), vmax=np.log10(vmax), **kwargs)
+        plt.imshow(np.log10(im.image), vmin=np.log10(vmin), vmax=np.log10(vmax), **kwargs)
     else:
-        plt.imshow(im.image.T, vmin=vmin, vmax=vmax, **kwargs)
+        plt.imshow(im.image, vmin=vmin, vmax=vmax, **kwargs)
 
 
 locate_src_dir(dir=None)
