@@ -29,8 +29,6 @@ class Renderer():
         self.p_i = None
         self.rhog = None
 
-
-
     def locate_src_dir(self, src_dir=None):
         """
         Locates the RADMC3D source directory.
@@ -44,7 +42,8 @@ class Renderer():
         if src_dir is not None:
             src_dir = os.path.expanduser(src_dir)
         elif self.src_dir is not None:
-            warnings.warn('src_dir already set. Change it by setting the `src_dir` keyword in `locate_src_dir`')
+            warnings.warn(
+                'src_dir already set. Change it by setting the `src_dir` keyword in `locate_src_dir`')
             return
         else:
             try:
@@ -61,21 +60,21 @@ class Renderer():
                 pass
                 src_dir = executable.parent.parent / 'src'
 
-        self.src_dir= src_dir
+        self.src_dir = src_dir
 
         if src_dir is None:
-            print('could not find RADMC3D source directory, specify it with the `src_dir` keyword.')
+            print(
+                'could not find RADMC3D source directory, specify it with the `src_dir` keyword.')
         else:
             print(f'RADMC3D source dir set to \'{src_dir}\'')
-
 
     def make(self):
         """
         Compiles the RADMC3D source code with the userdef_module.f90 file.
         """
         path = Path(self.path)
-        callit(command=f'SRC={self.src_dir}', executable='make', path=self.path, verbose=2)
-
+        callit(command=f'SRC={self.src_dir}',
+               executable='make', path=self.path, verbose=2)
 
     def write_sources(self):
         """Write out the Makefile and source file for compiling radmc3d into `self.path`"""
@@ -85,7 +84,8 @@ class Renderer():
             path.mkdir()
 
         makefile_path = pkg_resources.resource_filename(__name__, 'Makefile')
-        usermodule_path = pkg_resources.resource_filename(__name__, 'userdef_module.f90')
+        usermodule_path = pkg_resources.resource_filename(
+            __name__, 'userdef_module.f90')
 
         shutil.copy(makefile_path, path)
         shutil.copy(usermodule_path, path)
@@ -108,18 +108,19 @@ class Renderer():
         path = Path(self.path)
 
         if isinstance(input_data, dict):
-            self.r_i  = input_data['r_i']
-            self.t_i  = input_data['t_i']
-            self.p_i  = input_data['p_i']
+            self.r_i = input_data['r_i']
+            self.t_i = input_data['t_i']
+            self.p_i = input_data['p_i']
             self.rhog = input_data['rho']
         elif isinstance(input_data, str):
             with np.load(input_data) as fid:
-                self.r_i  = fid['r_i']
-                self.t_i  = fid['t_i']
-                self.p_i  = fid['p_i']
+                self.r_i = fid['r_i']
+                self.t_i = fid['t_i']
+                self.p_i = fid['p_i']
                 self.rhog = fid['rho']
         else:
-            raise ValueError('input_data must be dict or path to existing file')
+            raise ValueError(
+                'input_data must be dict or path to existing file')
 
     @property
     def n_t(self):
@@ -136,16 +137,18 @@ class Renderer():
         """
         if any(v is None for v in [self.r_i, self.t_i, self.p_i, self.rhog]):
             raise ValueError('No data loaded. Use `read_data` first.')
-            
+
         n_t = self.n_t
         #
         # NON-SCIENTIFIC RESCALING:
         #
-        rhog = self.rhog / self.rhog[:, (n_t + 1) // 2, :].mean(-1)[:, None, None]
+        rhog = self.rhog / self.rhog[:,
+                                     (n_t + 1) // 2, :].mean(-1)[:, None, None]
         #
         # for the NON-SCIENTIFIC OPACITIES: find limits
         #
-        ir = np.argmax(rhog[:, (n_t + 1) // 2, :].max(-1) / rhog[:, (n_t + 1) // 2, :].min(-1))
+        ir = np.argmax(rhog[:, (n_t + 1) // 2, :].max(-1) /
+                       rhog[:, (n_t + 1) // 2, :].min(-1))
         vmin = rhog[ir, (n_t + 1) // 2, :].min(-1)
         vmax = rhog[ir, (n_t + 1) // 2, :].max(-1)
 
@@ -157,7 +160,6 @@ class Renderer():
 
         # writes out density, radmc3d.inp and other needed stuff for radmc3d
         self.write_setup_files(rhog)
-
 
     def write_setup_files(self, rhog):
         """Writes out the radmc3d input files:
@@ -184,15 +186,16 @@ class Renderer():
             for value in Lambda:
                 fid.write(f'{value:13.6e}\n')
 
-        n_r  = len(self.r_i) - 1
-        n_t  = len(self.t_i) - 1
-        n_p  = len(self.p_i) - 1
+        n_r = len(self.r_i) - 1
+        n_t = len(self.t_i) - 1
+        n_p = len(self.p_i) - 1
         #
         # Write the grid file
         #
         with open(path / 'amr_grid.inp', 'w') as fid:
             fid.write('1\n')                      # iformat
-            fid.write('0\n')                      # AMR grid style  (0=regular grid, no AMR)
+            # AMR grid style  (0=regular grid, no AMR)
+            fid.write('0\n')
             fid.write('100\n')                    # Coordinate system
             fid.write('0\n')                      # gridinfo
             fid.write('1 1 1\n')                  # Include x,y,z coordinate
@@ -219,7 +222,6 @@ class Renderer():
         with open(path / 'radmc3d.inp', 'w') as fid:
             fid.write('incl_userdef_srcalp = 1')
 
-
     def write_transfer_options(self, mean=1.0, sigma=10.0):
         """Write out the parameters for the transfer function.
 
@@ -236,13 +238,11 @@ class Renderer():
             fid.write(f'transfer_density_mean = {mean:13.6e}\n')
             fid.write(f'transfer_density_sigm = {sigma:13.6e}\n')
 
-        
     def callit(self, **kwargs):
         kwargs['path'] = kwargs.get('path', self.path)
         kwargs['command'] = kwargs.get('command', None)
         kwargs['executable'] = kwargs.get('executable', './radmc3d')
         callit(**kwargs)
-
 
     def plotit(self, **kwargs):
         kwargs['path'] = kwargs.get('path', self.path)
@@ -278,7 +278,8 @@ def callit(command=None, executable='./radmc3d', path=os.curdir, verbose=0, tota
     command = f'{executable} {command}'
 
     # run the command
-    p = subprocess.Popen(command, cwd=path, shell=True, stdout=subprocess.PIPE, text=True)
+    p = subprocess.Popen(command, cwd=path, shell=True,
+                         stdout=subprocess.PIPE, text=True)
     output = []
 
     # get total number of photon packages
@@ -312,7 +313,8 @@ def plotit(path='.', log=False, **kwargs):
         kwargs['cmap'] = 'Reds'
 
     if log:
-        plt.imshow(np.log10(im.image), vmin=np.log10(vmin), vmax=np.log10(vmax), **kwargs)
+        plt.imshow(np.log10(im.image), vmin=np.log10(
+            vmin), vmax=np.log10(vmax), **kwargs)
     else:
         plt.imshow(im.image, vmin=vmin, vmax=vmax, **kwargs)
 
@@ -364,7 +366,8 @@ def read_image(ext=None, filename=None):
     #
     iformat = fromfile(funit, dtype='int', count=1, sep=' ')[0]
     if iformat < 1 or iformat > 4:
-        raise NameError('ERROR: File format of ' + filename + ' not recognized.')
+        raise NameError('ERROR: File format of ' +
+                        filename + ' not recognized.')
     if iformat == 1 or iformat == 3:
         radian = False
     else:
@@ -384,7 +387,8 @@ def read_image(ext=None, filename=None):
         image_shape = [4, nx, ny, nf]
     else:
         image_shape = [nx, ny, nf]
-    image = fromfile(funit, dtype=float, count=product(image_shape), sep=' ').reshape(image_shape, order='F')
+    image = fromfile(funit, dtype=float, count=product(
+        image_shape), sep=' ').reshape(image_shape, order='F')
     funit.close()
     #
     # If the image contains all four Stokes vector components,
