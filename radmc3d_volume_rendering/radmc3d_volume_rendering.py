@@ -3,10 +3,17 @@ import shutil
 import os
 import pkg_resources
 
+from types import SimpleNamespace
+
+import subprocess
+from tqdm.auto import tqdm
+
 import numpy as np
 import matplotlib.pyplot as plt
+import astropy.constants as const
 
-from disklab import radmc3d as r3
+pc = const.pc.cgs.value
+
 
 # import argparse
 # parser = argparse.ArgumentParser()
@@ -47,7 +54,7 @@ def make(path):
 
     try:
         os.chdir(path)
-        r3.radmc3d(f'SRC={src_dir}', executable='make')
+        callit(command=f'SRC={src_dir}', executable='make', path=path, verbose=True)
     except Exception as e:
         raise e
     finally:
@@ -216,28 +223,61 @@ def write_transfer_options(mean=1.0, sigma=10.0, path='.'):
         fid.write(f'transfer_density_sigm = {sigma:13.6e}\n')
 
 
-def callit(command=None, executable='./radmc3d', path=os.curdir):
+def callit(command=None, executable='./radmc3d', path=os.curdir, verbose=0, total=None):
     """
-    Once the code is compiled and all input present, call the raytracing.
+    Run radmc3d command and show progress bar instead.
 
-    command : str
-        the radmc3d command to be executed
+    commandd : str
+        the command to run, e.g. 'mctherm'
+        defaults to an image at 10 micron
 
     executable : str
-        the command to run radmc3d (=path to the radmc3d executable)
+        the command to run radmc3d (possibly with path to the executable)
 
     path : str
         path to the working directory where radmc3d is called
 
+    verbose : bool
+        if 0, then all output except the photon packges are shown
+        if 1, just the progress is shown.
+        if 2, all output is shown
+
+    total : None | int
+        total number of photon packages, if known
     """
     if command is None:
         command = 'image lambda 10 sizeradian 2 posang 180 projection 1 locobsau 0 0 .5 pointau -1 0 0 nofluxcons npix 400'
 
-    r3.radmc3d(command, executable=executable, path=path)
+    # join executable and command
+    command = f'{executable} {command}'
+
+    # run the command
+    p = subprocess.Popen(command, cwd=path, shell=True, stdout=subprocess.PIPE, text=True)
+    output = []
+
+    # get total number of photon packages
+    if 'nphot' in command:
+        total = int(command.split('nphot')[1].split()[1])
+
+    # show progress bar
+    if verbose < 2:
+        pbar = tqdm(total=total, unit='photons')
+
+    for line in p.stdout:
+        if ('Photon nr' in line) and (verbose < 2):
+            pbar.update(1000)
+        elif verbose:
+            print(line, end='')
+        output += [line]
+    rc = p.wait()
+    if verbose < 2:
+        pbar.close()
+
+    return rc, ''.join(output)
 
 
 def plotit(path='.', log=False, **kwargs):
-    im = r3.read_image(filename=str(Path(path) / 'image.out'))
+    im = read_image(filename=str(Path(path) / 'image.out'))
     plt.gca().clear()
 
     vmin = kwargs.pop('vmin', im.image.min())
@@ -249,6 +289,124 @@ def plotit(path='.', log=False, **kwargs):
         plt.imshow(np.log10(im.image), vmin=np.log10(vmin), vmax=np.log10(vmax), **kwargs)
     else:
         plt.imshow(im.image, vmin=vmin, vmax=vmax, **kwargs)
+
+
+def read_image(ext=None, filename=None):
+    """
+    Reads the rectangular telescope image produced by RADMC3D. The file name of
+    the image is assumed to be image.out if no keyword is given. If keyword
+    `ext` is given, the filename  'image_'+ext+'.out' is used. If keyword
+    `filename` is given, it is used as the file name.
+
+    Keywords:
+    ---------
+
+    ext : string
+        Filname extension of the image file, see above
+
+    filename : string
+        file name of the image file
+
+    Output:
+    -------
+
+    Returns a namespace containing the image data with the following attributes:
+    nx,ny,nrfr,sizepix_x,sizepix_y,image,flux,x,y,lamb,radian,stokes
+
+    The image is in erg/(s cm^2 Hz ster)
+
+    """
+    from numpy import fromfile, product, arange
+    import glob
+    #
+    # Read from normal file, so make filename
+    #
+    if filename is None:
+        if ext is None:
+            filename = 'image.out'
+        else:
+            filename = 'image_' + str(ext) + '.out'
+    fstr = glob.glob(str(filename))
+    if len(fstr) == 0:
+        print('Sorry, cannot find ' + filename)
+        print('Presumably radmc3d exited without succes.')
+        print('See above for possible error messages of radmc3d!')
+        raise NameError('File not found')
+    funit = open(filename)
+    #
+    # Read the image
+    #
+    iformat = fromfile(funit, dtype='int', count=1, sep=' ')[0]
+    if iformat < 1 or iformat > 4:
+        raise NameError('ERROR: File format of ' + filename + ' not recognized.')
+    if iformat == 1 or iformat == 3:
+        radian = False
+    else:
+        radian = True
+    if iformat == 1 or iformat == 2:
+        stokes = False
+    else:
+        stokes = True
+
+    nx, ny = fromfile(funit, dtype=int, count=2, sep=' ')
+    nf = fromfile(funit, dtype=int, count=1, sep=' ')[0]
+    sizepix_x, sizepix_y = fromfile(funit, dtype=float, count=2, sep=' ')
+    lamb = fromfile(funit, dtype=float, count=nf, sep=' ')
+    if nf == 1:
+        lamb = lamb[0]
+    if stokes:
+        image_shape = [4, nx, ny, nf]
+    else:
+        image_shape = [nx, ny, nf]
+    image = fromfile(funit, dtype=float, count=product(image_shape), sep=' ').reshape(image_shape, order='F')
+    funit.close()
+    #
+    # If the image contains all four Stokes vector components,
+    # then it is useful to transpose the image array such that
+    # the Stokes index is the third index, so that the first
+    # two indices remain x and y
+    #
+    if stokes:
+        if nf > 1:
+            image = image[[1, 2, 0, 3]]
+        else:
+            image = image[[1, 2, 0]]
+    #
+    # Compute the flux in this image as seen at 1 pc
+    #
+    flux = 0.0
+    if stokes:
+        for ix in arange(nx):
+            for iy in arange(ny):
+                flux = flux + image[ix, iy, 0, :]
+    else:
+        for ix in arange(nx):
+            for iy in arange(ny):
+                flux = flux + image[ix, iy, :]
+    flux = flux * sizepix_x * sizepix_y
+    if not radian:
+        flux = flux / pc**2
+    #
+    # Compute the x- and y- coordinates
+    #
+    x = ((arange(nx) + 0.5) / (nx * 1.) - 0.5) * sizepix_x * nx
+    y = ((arange(ny) + 0.5) / (ny * 1.) - 0.5) * sizepix_y * ny
+    #
+    # Return all
+    #
+    return SimpleNamespace(
+        nx=nx,
+        ny=ny,
+        nrfr=nf,
+        sizepix_x=sizepix_x,
+        sizepix_y=sizepix_y,
+        image=image.squeeze(),
+        flux=flux,
+        x=x,
+        y=y,
+        lamb=lamb,
+        radian=radian,
+        stokes=stokes)
 
 
 locate_src_dir(dir=None)
