@@ -42,7 +42,7 @@ if __name__ == "__main__":
                 'pandas',
                 'sphinx',
                 'nbsphinx',
-                'disklab'],
+                'tqdm'],
             zip_safe=False,
             ext_modules=extensions
             )
