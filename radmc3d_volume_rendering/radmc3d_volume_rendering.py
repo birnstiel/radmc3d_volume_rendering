@@ -201,11 +201,11 @@ class Renderer():
             fid.write('1 1 1\n')                  # Include x,y,z coordinate
             fid.write(f'{n_r} {n_t} {n_p}\n')        # Size of grid
             for value in self.r_i:
-                fid.write(f'{value:13.6e}\n')
+                fid.write(f'{value:.12e}\n')
             for value in self.t_i:
-                fid.write(f'{value:13.6e}\n')
+                fid.write(f'{value:.12e}\n')
             for value in self.p_i:
-                fid.write(f'{value:13.6e}\n')
+                fid.write(f'{value:.12e}\n')
         #
         # Write the density file
         #
@@ -214,7 +214,7 @@ class Renderer():
             fid.write(f'{n_r * n_t * n_p}\n')    # Nr of cells
             fid.write('1\n')                     # Format number
             data = rhog.ravel(order='F')
-            data.tofile(fid, sep='\n', format='%13.6e')
+            data.tofile(fid, sep='\n', format='%.12e')
             fid.write('\n')
         #
         # Write the radmc3d.inp control file
