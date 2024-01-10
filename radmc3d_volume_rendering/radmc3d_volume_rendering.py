@@ -17,7 +17,7 @@ pc = const.pc.cgs.value
 class Renderer():
 
     def __init__(self, src_dir=None, path=None):
-
+        self.src_dir = None
         self.locate_src_dir(src_dir)
         self.path = path
 
