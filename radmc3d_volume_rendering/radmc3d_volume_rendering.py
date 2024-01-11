@@ -85,8 +85,12 @@ class Renderer():
         """
         Compiles the RADMC3D source code with the userdef_module.f90 file.
         """
-        self.stdout, self.stderr = callit(command=f'SRC={self.src_dir}',
-               executable='make', path=self.path)
+        self.stdout, self.stderr = callit(
+            command=f'SRC={self.src_dir}',
+            executable='make', path=self.path)
+
+        if self.stderr != '':
+            print(self.stderr)
 
     def write_sources(self):
         """Write out the Makefile and source file for compiling radmc3d into `self.path`"""
@@ -139,37 +143,35 @@ class Renderer():
         if self.r_i is None:
             return None
         return len(self.r_i) - 1
-    
 
     @property
     def n_t(self):
         if self.t_i is None:
             return None
         return len(self.t_i) - 1
-    
+
     @property
     def n_p(self):
         if self.p_i is None:
             return None
         return len(self.p_i) - 1
-    
+
     @property
     def rho(self):
         """The gas density of shape (nr, nt, np)"""
         return self._rho
-    
+
     @rho.setter
     def rho(self, value):
         """The gas density of shape (nr, nt, np)"""
         if value.shape != (self.n_r, self.n_t, self.n_p):
             raise ValueError(
                 f'rho must have shape ({self.n_r}, {self.n_t}, {self.n_p})')
-        
+
         self._rho = value
         self.vmax = value.max()
         self.vmin = value.min()
         self.sigma = 0.5 * (self.vmax - self.vmin)
-
 
     def write_input(self):
         """Writes out the radmc3d input files:
@@ -204,14 +206,15 @@ class Renderer():
             fid.write('100\n')                    # Coordinate system
             fid.write('0\n')                      # gridinfo
             fid.write('1 1 1\n')                  # Include x,y,z coordinate
-            fid.write(f'{self.n_r} {self.n_t} {self.n_p}\n')        # Size of grid
+            # Size of grid
+            fid.write(f'{self.n_r} {self.n_t} {self.n_p}\n')
             for value in self.r_i:
                 fid.write(f'{value:.12e}\n')
             for value in self.t_i:
                 fid.write(f'{value:.12e}\n')
             for value in self.p_i:
                 fid.write(f'{value:.12e}\n')
-    
+
         # Write the density file
         with open(path / 'gas_density.inp', 'w') as fid:
             fid.write('1\n')                     # Format number
@@ -224,7 +227,6 @@ class Renderer():
         # Write the radmc3d.inp control file
         with open(path / 'radmc3d.inp', 'w') as fid:
             fid.write('incl_userdef_srcalp = 1')
-
 
     def write_transfer_options(self, mean=1.0, sigma=10.0):
         """Write out the parameters for the transfer function.
@@ -274,7 +276,8 @@ def callit(command=None, executable='./radmc3d', path=os.curdir):
     command = f'{executable} {command}'
 
     # run the command
-    p = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=path, shell=True, text=True)
+    p = subprocess.Popen(command, stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE, cwd=path, shell=True, text=True)
     stout, stderr = p.communicate()
 
     return stout, stderr
