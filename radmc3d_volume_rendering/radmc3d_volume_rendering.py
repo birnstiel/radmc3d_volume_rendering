@@ -27,7 +27,20 @@ class Renderer():
         self.r_i = None
         self.t_i = None
         self.p_i = None
-        self.rhog = None
+        self._rho = None
+
+        self.stdout = None
+        self.stderr = None
+
+        self.vmax = None
+        self.vmin = None
+        self.sigma = None
+
+        print('writing sources')
+        self.write_sources()
+        print('compiling ... ', end='', flush=True)
+        self.make()
+        print('done')
 
     def locate_src_dir(self, src_dir=None):
         """
@@ -72,9 +85,8 @@ class Renderer():
         """
         Compiles the RADMC3D source code with the userdef_module.f90 file.
         """
-        path = Path(self.path)
-        callit(command=f'SRC={self.src_dir}',
-               executable='make', path=self.path, verbose=2)
+        self.stdout, self.stderr = callit(command=f'SRC={self.src_dir}',
+               executable='make', path=self.path)
 
     def write_sources(self):
         """Write out the Makefile and source file for compiling radmc3d into `self.path`"""
@@ -111,57 +123,55 @@ class Renderer():
             self.r_i = input_data['r_i']
             self.t_i = input_data['t_i']
             self.p_i = input_data['p_i']
-            self.rhog = input_data['rho']
+            self.rho = input_data['rho']
         elif isinstance(input_data, str):
             with np.load(input_data) as fid:
                 self.r_i = fid['r_i']
                 self.t_i = fid['t_i']
                 self.p_i = fid['p_i']
-                self.rhog = fid['rho']
+                self.rho = fid['rho']
         else:
             raise ValueError(
                 'input_data must be dict or path to existing file')
+
+    @property
+    def n_r(self):
+        if self.r_i is None:
+            return None
+        return len(self.r_i) - 1
+    
 
     @property
     def n_t(self):
         if self.t_i is None:
             return None
         return len(self.t_i) - 1
+    
+    @property
+    def n_p(self):
+        if self.p_i is None:
+            return None
+        return len(self.p_i) - 1
+    
+    @property
+    def rho(self):
+        """The gas density of shape (nr, nt, np)"""
+        return self._rho
+    
+    @rho.setter
+    def rho(self, value):
+        """The gas density of shape (nr, nt, np)"""
+        if value.shape != (self.n_r, self.n_t, self.n_p):
+            raise ValueError(
+                f'rho must have shape ({self.n_r}, {self.n_t}, {self.n_p})')
+        
+        self._rho = value
+        self.vmax = value.max()
+        self.vmin = value.min()
+        self.sigma = 0.5 * (self.vmax - self.vmin)
 
-    def radmc3d_setup(self):
-        """Write out the setup of radmc3d into `self.path`.
 
-        This includes writing the setup files (`write_setup_files`) and a guess
-        of the transfer fuction (`write_transfer_options`). You still need to write
-        the source files, compile and run.
-        """
-        if any(v is None for v in [self.r_i, self.t_i, self.p_i, self.rhog]):
-            raise ValueError('No data loaded. Use `read_data` first.')
-
-        n_t = self.n_t
-        #
-        # NON-SCIENTIFIC RESCALING:
-        #
-        rhog = self.rhog / self.rhog[:,
-                                     (n_t + 1) // 2, :].mean(-1)[:, None, None]
-        #
-        # for the NON-SCIENTIFIC OPACITIES: find limits
-        #
-        ir = np.argmax(rhog[:, (n_t + 1) // 2, :].max(-1) /
-                       rhog[:, (n_t + 1) // 2, :].min(-1))
-        vmin = rhog[ir, (n_t + 1) // 2, :].min(-1)
-        vmax = rhog[ir, (n_t + 1) // 2, :].max(-1)
-
-        mean = vmax
-        sigma = 0.5 * (vmax - vmin)
-
-        # writes out the properties for the density to source function scaling
-        self.write_transfer_options(mean=mean, sigma=sigma)
-
-        # writes out density, radmc3d.inp and other needed stuff for radmc3d
-        self.write_setup_files(rhog)
-
-    def write_setup_files(self, rhog):
+    def write_input(self):
         """Writes out the radmc3d input files:
 
             - ``gas_density.inp``
@@ -171,7 +181,7 @@ class Renderer():
             - ``transfer.inp``
 
         Args:
-            rhog (array): density array of shape (nr, nt, np)
+            rho (array): density array of shape (nr, nt, np)
             path (str | pathlib.Path): path to folder where data is written
 
         """
@@ -186,12 +196,7 @@ class Renderer():
             for value in Lambda:
                 fid.write(f'{value:13.6e}\n')
 
-        n_r = len(self.r_i) - 1
-        n_t = len(self.t_i) - 1
-        n_p = len(self.p_i) - 1
-        #
         # Write the grid file
-        #
         with open(path / 'amr_grid.inp', 'w') as fid:
             fid.write('1\n')                      # iformat
             # AMR grid style  (0=regular grid, no AMR)
@@ -199,28 +204,27 @@ class Renderer():
             fid.write('100\n')                    # Coordinate system
             fid.write('0\n')                      # gridinfo
             fid.write('1 1 1\n')                  # Include x,y,z coordinate
-            fid.write(f'{n_r} {n_t} {n_p}\n')        # Size of grid
+            fid.write(f'{self.n_r} {self.n_t} {self.n_p}\n')        # Size of grid
             for value in self.r_i:
                 fid.write(f'{value:.12e}\n')
             for value in self.t_i:
                 fid.write(f'{value:.12e}\n')
             for value in self.p_i:
                 fid.write(f'{value:.12e}\n')
-        #
+    
         # Write the density file
-        #
         with open(path / 'gas_density.inp', 'w') as fid:
             fid.write('1\n')                     # Format number
-            fid.write(f'{n_r * n_t * n_p}\n')    # Nr of cells
+            fid.write(f'{self.n_r * self.n_t * self.n_p}\n')    # Nr of cells
             fid.write('1\n')                     # Format number
-            data = rhog.ravel(order='F')
-            data.tofile(fid, sep='\n', format='%.12e')
+            data = self.rho.ravel(order='F')
+            data.tofile(fid, sep='\n', format="%13.6e")
             fid.write('\n')
-        #
+
         # Write the radmc3d.inp control file
-        #
         with open(path / 'radmc3d.inp', 'w') as fid:
             fid.write('incl_userdef_srcalp = 1')
+
 
     def write_transfer_options(self, mean=1.0, sigma=10.0):
         """Write out the parameters for the transfer function.
@@ -242,14 +246,14 @@ class Renderer():
         kwargs['path'] = kwargs.get('path', self.path)
         kwargs['command'] = kwargs.get('command', None)
         kwargs['executable'] = kwargs.get('executable', './radmc3d')
-        callit(**kwargs)
+        self.stdout, self.stderr = callit(**kwargs)
 
     def plotit(self, **kwargs):
         kwargs['path'] = kwargs.get('path', self.path)
         plotit(**kwargs)
 
 
-def callit(command=None, executable='./radmc3d', path=os.curdir, verbose=0, total=None):
+def callit(command=None, executable='./radmc3d', path=os.curdir):
     """
     Run radmc3d command and show progress bar instead.
 
@@ -262,14 +266,6 @@ def callit(command=None, executable='./radmc3d', path=os.curdir, verbose=0, tota
 
     path : str
         path to the working directory where radmc3d is called
-
-    verbose : bool
-        if 0, then all output except the photon packges are shown
-        if 1, just the progress is shown.
-        if 2, all output is shown
-
-    total : None | int
-        total number of photon packages, if known
     """
     if command is None:
         command = 'image lambda 10 sizeradian 2 posang 180 projection 1 locobsau 0 0 .5 pointau -1 0 0 nofluxcons npix 400'
@@ -278,29 +274,10 @@ def callit(command=None, executable='./radmc3d', path=os.curdir, verbose=0, tota
     command = f'{executable} {command}'
 
     # run the command
-    p = subprocess.Popen(command, cwd=path, shell=True,
-                         stdout=subprocess.PIPE, text=True)
-    output = []
+    p = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=path, shell=True, text=True)
+    stout, stderr = p.communicate()
 
-    # get total number of photon packages
-    if 'nphot' in command:
-        total = int(command.split('nphot')[1].split()[1])
-
-    # show progress bar
-    if verbose < 2:
-        pbar = tqdm(total=total, unit='photons')
-
-    for line in p.stdout:
-        if ('Photon nr' in line) and (verbose < 2):
-            pbar.update(1000)
-        elif verbose:
-            print(line, end='')
-        output += [line]
-    rc = p.wait()
-    if verbose < 2:
-        pbar.close()
-
-    return rc, ''.join(output)
+    return stout, stderr
 
 
 def plotit(path='.', log=False, **kwargs):
