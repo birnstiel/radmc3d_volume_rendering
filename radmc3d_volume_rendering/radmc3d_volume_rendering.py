@@ -1,12 +1,12 @@
 from pathlib import Path
 import shutil
+import time
 import os
 import pkg_resources
 import warnings
 from types import SimpleNamespace
-import subprocess
+from subprocess import Popen, PIPE
 
-from tqdm.auto import tqdm
 import numpy as np
 import matplotlib.pyplot as plt
 import astropy.constants as const
@@ -41,6 +41,89 @@ class Renderer():
         print('compiling ... ', end='', flush=True)
         self.make()
         print('done')
+
+        self.open_radmc3d_child()
+
+    def __del__(self):
+        print("close radmc3d child process")
+        if self.process.poll() is None:
+            print('closing radmc3d child process')
+            self.process.stdin.write('quit\n')
+            self.process.stdin.flush()
+            time.sleep(0.5)
+        
+        if self.process.poll() is None:
+            print('killing radmc3d child process')
+            self.process.kill()
+            time.sleep(0.5)
+
+
+    def open_radmc3d_child(self):
+        """Opens the radmc3d child process"""
+        process = Popen(['./radmc3d', 'child'], cwd=self.path, stdin=PIPE, stdout=PIPE, stderr=PIPE, text=True, bufsize=1)
+
+        os.set_blocking(process.stdout.fileno(), False)
+        os.set_blocking(process.stderr.fileno(), False)
+
+        if process.poll() is not None:
+            print('radmc3d child process exited with code', process.returncode)
+
+        self.process = process
+
+    def make_image(self, cmd):
+        p = self.process
+
+        if isinstance(cmd, str):
+            cmd = [c for c in cmd.split() if c != 'enter']
+
+        for word in cmd:
+            p.stdin.write(word + '\n')
+            p.stdin.flush()
+
+        p.stdin.write('writeimage\n')
+        p.stdin.write('enter\n')
+        p.stdin.flush()
+
+        line = waitforit(p)
+
+        # the first line is just the format number, so we 
+        # can just continue reading the rest of the lines
+        lines = p.stdout.readlines()
+
+        # somehow the reading does not return all lines, so we
+        # wait a bit and try again until nothing else is returned
+        while True:
+            time.sleep(0.2)
+            lines2 = p.stdout.readlines()
+            lines += lines2
+            if len(lines2) == 0:
+                break
+
+        # read the data into image info
+        nx, ny = np.fromstring(lines.pop(0), sep=' ', count=2, dtype=int)
+        nlam = np.fromstring(lines.pop(0), sep=' ', count=2, dtype=int)
+        dx, dy = np.fromstring(lines.pop(0), sep=' ', count=2, dtype=float)
+        lam = np.fromstring(lines.pop(0), sep=' ', count=1, dtype=float) 
+        im = np.fromstring(''.join(lines), sep=' ', count=-1, dtype=float)
+
+        # compute the image grid
+        xi = dx * np.linspace(-nx / 2, nx / 2, nx + 1)
+        yi = dy * np.linspace(-ny / 2, ny / 2, ny + 1)
+        x = 0.5 * (xi[1:] + xi[:-1])
+        y = 0.5 * (yi[1:] + yi[:-1])
+
+        # return the image 
+        return SimpleNamespace(
+            x=x,
+            y=y,
+            xi=xi,
+            yi=yi,
+            nlam=nlam,
+            nx=nx,
+            ny=ny,
+            lam=lam,
+            im=im.reshape((nx, ny, 1)).squeeze()
+        )
 
     def locate_src_dir(self, src_dir=None):
         """
@@ -276,8 +359,8 @@ def callit(command=None, executable='./radmc3d', path=os.curdir):
     command = f'{executable} {command}'
 
     # run the command
-    p = subprocess.Popen(command, stdout=subprocess.PIPE,
-                         stderr=subprocess.PIPE, cwd=path, shell=True, text=True)
+    p = Popen(command, stdout=PIPE,
+              stderr=PIPE, cwd=path, shell=True, text=True)
     stout, stderr = p.communicate()
 
     return stout, stderr
@@ -417,3 +500,18 @@ def read_image(ext=None, filename=None):
         lamb=lamb,
         radian=radian,
         stokes=stokes)
+
+def waitforit(p, timeout=20):
+    """Wait for the process to start returning something and return the last line of stdout"""
+    print('waiting ... ', end='', flush=True)
+    t0 = time.time()
+    while True:
+        line = p.stdout.readline()
+        time.sleep(0.2)
+        if line.strip() != '':
+            break
+        if time.time() - t0 > timeout:
+            print('timeout')
+            raise TimeoutError('timeout')            
+    print('done')
+    return line
