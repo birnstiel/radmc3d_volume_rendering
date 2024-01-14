@@ -77,34 +77,39 @@ class Renderer():
             cmd = [c for c in cmd.split() if c != 'enter']
 
         for word in cmd:
-            p.stdin.write(word + '\n')
-            p.stdin.flush()
+            self.process.stdin.write(word + '\n')
+            self.process.stdin.flush()
 
-        p.stdin.write('writeimage\n')
-        p.stdin.write('enter\n')
-        p.stdin.flush()
+        self.process.stdin.write('writeimage\n')
+        self.process.stdin.flush()
+
+        print('1: process live? ', self.process.poll() is None)
 
         line = waitforit(p)
 
+        print('2: process live? ', self.process.poll() is None)
+
         # the first line is just the format number, so we 
         # can just continue reading the rest of the lines
-        lines = p.stdout.readlines()
+        lines = self.process.stdout.readlines()
 
         # somehow the reading does not return all lines, so we
         # wait a bit and try again until nothing else is returned
         while True:
             time.sleep(0.2)
-            lines2 = p.stdout.readlines()
+            lines2 = self.process.stdout.readlines()
             lines += lines2
             if len(lines2) == 0:
                 break
 
+        print('3: process live? ', self.process.poll() is None)
+
         # read the data into image info
         nx, ny = np.fromstring(lines.pop(0), sep=' ', count=2, dtype=int)
-        nlam = np.fromstring(lines.pop(0), sep=' ', count=2, dtype=int)
+        nlam = int(np.fromstring(lines.pop(0), sep=' ', count=1, dtype=int))
         dx, dy = np.fromstring(lines.pop(0), sep=' ', count=2, dtype=float)
-        lam = np.fromstring(lines.pop(0), sep=' ', count=1, dtype=float) 
-        im = np.fromstring(''.join(lines), sep=' ', count=-1, dtype=float)
+        lam = np.fromstring(''.join(lines[:nlam]), sep=' ', count=nlam, dtype=float) 
+        im = np.fromstring(''.join(lines[nlam:]), sep=' ', count=-1, dtype=float)
 
         # compute the image grid
         xi = dx * np.linspace(-nx / 2, nx / 2, nx + 1)
@@ -122,7 +127,7 @@ class Renderer():
             nx=nx,
             ny=ny,
             lam=lam,
-            im=im.reshape((nx, ny, 1)).squeeze()
+            im=im.reshape((nx, ny, nlam), order='F').squeeze()
         )
 
     def locate_src_dir(self, src_dir=None):
