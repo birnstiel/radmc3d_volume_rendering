@@ -42,24 +42,25 @@ class Renderer():
         self.make()
         print('done')
 
-        self.open_radmc3d_child()
+        self._process = None
+        self._start_radmc3d_child()
 
     def __del__(self):
-        print("close radmc3d child process")
-        if self.process.poll() is None:
-            print('closing radmc3d child process')
-            self.process.stdin.write('quit\n')
-            self.process.stdin.flush()
-            time.sleep(0.5)
+        self._close_radmc3d_child()
+
+
+    @property
+    def process(self):
+        if (self._process is None) or (self._process.poll() is not None):
+            self._start_radmc3d_child()
+        return self._process
+            
+            
+    def _start_radmc3d_child(self):
+        """Starts the radmc3d child process"""
         
-        if self.process.poll() is None:
-            print('killing radmc3d child process')
-            self.process.kill()
-            time.sleep(0.5)
-
-
-    def open_radmc3d_child(self):
-        """Opens the radmc3d child process"""
+        print('starting RADMC3D child process ... ', end='', flush=True)
+        
         process = Popen(['./radmc3d', 'child'], cwd=self.path, stdin=PIPE, stdout=PIPE, stderr=PIPE, text=True, bufsize=1)
 
         os.set_blocking(process.stdout.fileno(), False)
@@ -68,9 +69,30 @@ class Renderer():
         if process.poll() is not None:
             print('radmc3d child process exited with code', process.returncode)
 
-        self.process = process
+        self._process = process
+        
+        print('done!')
+        
+    def _close_radmc3d_child(self):
+        "close the RADMC3D child process"
+        print("attempting to close radmc3d child process")
+        
+        if self._process is None:
+            print('no process found')
+            return None
+        
+        if self._process.poll() is None:
+            print('process alive, closing it now')
+            self._process.stdin.write('quit\n')
+            self._process.stdin.flush()
+            time.sleep(0.5)
+        
+        if self._process.poll() is None:
+            print('killing radmc3d child process')
+            self._process.kill()
+            time.sleep(0.5)
 
-    def make_image(self, cmd):
+    def make_image(self, cmd, timeout=np.inf):
         p = self.process
 
         if isinstance(cmd, str):
@@ -83,11 +105,9 @@ class Renderer():
         self.process.stdin.write('writeimage\n')
         self.process.stdin.flush()
 
-        print('1: process live? ', self.process.poll() is None)
-
-        line = waitforit(p)
-
-        print('2: process live? ', self.process.poll() is None)
+        line = waitforit(p, timeout=timeout, message='running')
+        
+        print('reading image ... ', end='', flush=True)
 
         # the first line is just the format number, so we 
         # can just continue reading the rest of the lines
@@ -102,7 +122,7 @@ class Renderer():
             if len(lines2) == 0:
                 break
 
-        print('3: process live? ', self.process.poll() is None)
+        print('done!')
 
         # read the data into image info
         nx, ny = np.fromstring(lines.pop(0), sep=' ', count=2, dtype=int)
@@ -164,7 +184,7 @@ class Renderer():
         self.src_dir = src_dir
 
         if src_dir is None:
-            print(
+            raise ValueError(
                 'could not find RADMC3D source directory, specify it with the `src_dir` keyword.')
         else:
             print(f'RADMC3D source dir set to \'{src_dir}\'')
@@ -506,9 +526,9 @@ def read_image(ext=None, filename=None):
         radian=radian,
         stokes=stokes)
 
-def waitforit(p, timeout=20):
+def waitforit(p, message='waiting', timeout=20):
     """Wait for the process to start returning something and return the last line of stdout"""
-    print('waiting ... ', end='', flush=True)
+    print(message + ' ... ', end='', flush=True)
     t0 = time.time()
     while True:
         line = p.stdout.readline()
@@ -518,5 +538,5 @@ def waitforit(p, timeout=20):
         if time.time() - t0 > timeout:
             print('timeout')
             raise TimeoutError('timeout')            
-    print('done')
+    print('done!')
     return line
