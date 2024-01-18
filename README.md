@@ -2,13 +2,12 @@
 
 Helper object to run RADMC3D volume rendering with a Gaussian emissivity function. See the <a href='https://github.com/birnstiel/radmc3d_volume_rendering/tree/master/notebooks/volume_rendering.ipynb'>Jupyter notebook</a> in the notebooks folder.
 
-
+Here is the example rendering:
 
 <img width="30%" src='https://github.com/birnstiel/radmc3d_volume_rendering/blob/master/notebooks/example.jpg'>
 
-<video width="500" controls autoplay>
-  <source src="https://raw.githubusercontent.com/birnstiel/radmc3d_volume_rendering/master/notebooks/pan.mp4" type="video/mp4">
-  Your browser does not support the video tag.
-</video>
 
-<video width="500" src="https://raw.githubusercontent.com/birnstiel/radmc3d_volume_rendering/master/notebooks/pan.mp4" type="video/mp4" controls autoplay>
+The Notebook also shows how to render movies, here is an example:
+
+https://github.com/birnstiel/radmc3d_volume_rendering/assets/3997171/6d0500f6-e4c0-4501-9e92-3f2015f8a9b1
+
