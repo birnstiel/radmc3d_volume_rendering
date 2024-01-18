@@ -46,7 +46,7 @@ class Renderer():
         self._start_radmc3d_child()
 
     def __del__(self):
-        self._close_radmc3d_child()
+        self._stop_radmc3d_child()
 
 
     @property
@@ -73,9 +73,9 @@ class Renderer():
         
         print('done!')
         
-    def _close_radmc3d_child(self):
-        "close the RADMC3D child process"
-        print("attempting to close radmc3d child process")
+    def _stop_radmc3d_child(self):
+        "stop the RADMC3D child process"
+        print("attempting to stop radmc3d child process")
         
         if self._process is None:
             print('no process found')
@@ -85,12 +85,11 @@ class Renderer():
             print('process alive, closing it now')
             self._process.stdin.write('quit\n')
             self._process.stdin.flush()
-            time.sleep(0.5)
+            time.sleep(1.0)
         
         if self._process.poll() is None:
             print('killing radmc3d child process')
             self._process.kill()
-            time.sleep(0.5)
 
     def make_image(self, cmd, timeout=np.inf):
         p = self.process
@@ -108,19 +107,19 @@ class Renderer():
         line = waitforit(p, timeout=timeout, message='running')
         
         print('reading image ... ', end='', flush=True)
-
+        
+        self.process.stdout.flush()
+        
         # the first line is just the format number, so we 
         # can just continue reading the rest of the lines
-        lines = self.process.stdout.readlines()
-
-        # somehow the reading does not return all lines, so we
-        # wait a bit and try again until nothing else is returned
+        lines = []
         while True:
-            time.sleep(0.2)
-            lines2 = self.process.stdout.readlines()
-            lines += lines2
-            if len(lines2) == 0:
+            self.process.stdout.flush()
+            line = self.process.stdout.readline()
+            if not line:
                 break
+            else:
+                lines += [line]
 
         print('done!')
 
