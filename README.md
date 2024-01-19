@@ -9,5 +9,4 @@ Here is the example rendering:
 
 The Notebook also shows how to render movies, here is an example:
 
-https://github.com/birnstiel/radmc3d_volume_rendering/assets/3997171/6d0500f6-e4c0-4501-9e92-3f2015f8a9b1
-
+https://github.com/birnstiel/radmc3d_volume_rendering/assets/3997171/779bce96-2cfa-4b5c-8dd4-a8916f597682
