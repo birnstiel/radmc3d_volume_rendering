@@ -1,12 +1,12 @@
 from pathlib import Path
 import shutil
+import time
 import os
 import pkg_resources
 import warnings
 from types import SimpleNamespace
-import subprocess
+from subprocess import Popen, PIPE
 
-from tqdm.auto import tqdm
 import numpy as np
 import matplotlib.pyplot as plt
 import astropy.constants as const
@@ -42,6 +42,113 @@ class Renderer():
         self.make()
         print('done')
 
+        self._process = None
+        self._start_radmc3d_child()
+
+    def __del__(self):
+        self._stop_radmc3d_child()
+
+
+    @property
+    def process(self):
+        if (self._process is None) or (self._process.poll() is not None):
+            self._start_radmc3d_child()
+        return self._process
+            
+            
+    def _start_radmc3d_child(self):
+        """Starts the radmc3d child process"""
+        
+        print('starting RADMC3D child process ... ', end='', flush=True)
+        
+        process = Popen(['./radmc3d', 'child'], cwd=self.path, stdin=PIPE, stdout=PIPE, stderr=PIPE, text=True, bufsize=1)
+
+        os.set_blocking(process.stdout.fileno(), False)
+        os.set_blocking(process.stderr.fileno(), False)
+
+        if process.poll() is not None:
+            print('radmc3d child process exited with code', process.returncode)
+
+        self._process = process
+        
+        print('done!')
+        
+    def _stop_radmc3d_child(self):
+        "stop the RADMC3D child process"
+        print("attempting to stop radmc3d child process")
+        
+        if self._process is None:
+            print('no process found')
+            return None
+        
+        if self._process.poll() is None:
+            print('process alive, closing it now')
+            self._process.stdin.write('quit\n')
+            self._process.stdin.flush()
+            time.sleep(1.0)
+        
+        if self._process.poll() is None:
+            print('killing radmc3d child process')
+            self._process.kill()
+
+    def make_image(self, cmd, timeout=np.inf):
+        p = self.process
+
+        if isinstance(cmd, str):
+            cmd = [c for c in cmd.split() if c != 'enter']
+
+        for word in cmd:
+            self.process.stdin.write(word + '\n')
+            self.process.stdin.flush()
+
+        self.process.stdin.write('writeimage\n')
+        self.process.stdin.flush()
+
+        line = waitforit(p, timeout=timeout, message='running')
+        
+        print('reading image ... ', end='', flush=True)
+        
+        self.process.stdout.flush()
+        
+        # the first line is just the format number, so we 
+        # can just continue reading the rest of the lines
+        lines = []
+        while True:
+            self.process.stdout.flush()
+            line = self.process.stdout.readline()
+            if not line:
+                break
+            else:
+                lines += [line]
+
+        print('done!')
+
+        # read the data into image info
+        nx, ny = np.fromstring(lines.pop(0), sep=' ', count=2, dtype=int)
+        nlam = int(np.fromstring(lines.pop(0), sep=' ', count=1, dtype=int))
+        dx, dy = np.fromstring(lines.pop(0), sep=' ', count=2, dtype=float)
+        lam = np.fromstring(''.join(lines[:nlam]), sep=' ', count=nlam, dtype=float) 
+        im = np.fromstring(''.join(lines[nlam:]), sep=' ', count=-1, dtype=float)
+
+        # compute the image grid
+        xi = dx * np.linspace(-nx / 2, nx / 2, nx + 1)
+        yi = dy * np.linspace(-ny / 2, ny / 2, ny + 1)
+        x = 0.5 * (xi[1:] + xi[:-1])
+        y = 0.5 * (yi[1:] + yi[:-1])
+
+        # return the image 
+        return SimpleNamespace(
+            x=x,
+            y=y,
+            xi=xi,
+            yi=yi,
+            nlam=nlam,
+            nx=nx,
+            ny=ny,
+            lam=lam,
+            im=im.reshape((nx, ny, nlam), order='F').squeeze()
+        )
+
     def locate_src_dir(self, src_dir=None):
         """
         Locates the RADMC3D source directory.
@@ -76,7 +183,7 @@ class Renderer():
         self.src_dir = src_dir
 
         if src_dir is None:
-            print(
+            raise ValueError(
                 'could not find RADMC3D source directory, specify it with the `src_dir` keyword.')
         else:
             print(f'RADMC3D source dir set to \'{src_dir}\'')
@@ -288,8 +395,8 @@ def callit(command=None, executable='./radmc3d', path=os.curdir):
     command = f'{executable} {command}'
 
     # run the command
-    p = subprocess.Popen(command, stdout=subprocess.PIPE,
-                         stderr=subprocess.PIPE, cwd=path, shell=True, text=True)
+    p = Popen(command, stdout=PIPE,
+              stderr=PIPE, cwd=path, shell=True, text=True)
     stout, stderr = p.communicate()
 
     return stout, stderr
@@ -429,3 +536,18 @@ def read_image(ext=None, filename=None):
         lamb=lamb,
         radian=radian,
         stokes=stokes)
+
+def waitforit(p, message='waiting', timeout=20):
+    """Wait for the process to start returning something and return the last line of stdout"""
+    print(message + ' ... ', end='', flush=True)
+    t0 = time.time()
+    while True:
+        line = p.stdout.readline()
+        time.sleep(0.2)
+        if line.strip() != '':
+            break
+        if time.time() - t0 > timeout:
+            print('timeout')
+            raise TimeoutError('timeout')            
+    print('done!')
+    return line
