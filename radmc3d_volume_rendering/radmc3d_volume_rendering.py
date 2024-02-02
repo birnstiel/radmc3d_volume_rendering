@@ -26,7 +26,7 @@ class Renderer():
 
         self.r_i = None
         self.t_i = None
-        self.p_i = None
+        self._p_i = None
         self._rho = None
 
         self.stdout = None
@@ -137,6 +137,18 @@ class Renderer():
         else:
             raise ValueError(
                 'input_data must be dict or path to existing file')
+
+    @property
+    def p_i(self):
+        return self._p_i
+
+    @p_i.setter
+    def p_i(self, value):
+        if value[0] < 0:
+            warnings.warn('p_i must be positive, shifting it to start at zero')
+            self._p_i = np.array(value - value[0])
+        else:
+            self._p_i = np.array(value)
 
     @property
     def n_r(self):
