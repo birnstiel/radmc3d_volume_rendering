@@ -443,7 +443,6 @@ def read_image(ext=None, filename=None):
     The image is in erg/(s cm^2 Hz ster)
 
     """
-    from numpy import fromfile, product, arange
     import glob
     #
     # Read from normal file, so make filename
@@ -463,7 +462,7 @@ def read_image(ext=None, filename=None):
     #
     # Read the image
     #
-    iformat = fromfile(funit, dtype='int', count=1, sep=' ')[0]
+    iformat = np.fromfile(funit, dtype='int', count=1, sep=' ')[0]
     if iformat < 1 or iformat > 4:
         raise NameError('ERROR: File format of ' +
                         filename + ' not recognized.')
@@ -476,17 +475,17 @@ def read_image(ext=None, filename=None):
     else:
         stokes = True
 
-    nx, ny = fromfile(funit, dtype=int, count=2, sep=' ')
-    nf = fromfile(funit, dtype=int, count=1, sep=' ')[0]
-    sizepix_x, sizepix_y = fromfile(funit, dtype=float, count=2, sep=' ')
-    lamb = fromfile(funit, dtype=float, count=nf, sep=' ')
+    nx, ny = np.fromfile(funit, dtype=int, count=2, sep=' ')
+    nf = np.fromfile(funit, dtype=int, count=1, sep=' ')[0]
+    sizepix_x, sizepix_y = np.fromfile(funit, dtype=float, count=2, sep=' ')
+    lamb = np.fromfile(funit, dtype=float, count=nf, sep=' ')
     if nf == 1:
         lamb = lamb[0]
     if stokes:
         image_shape = [4, nx, ny, nf]
     else:
         image_shape = [nx, ny, nf]
-    image = fromfile(funit, dtype=float, count=product(
+    image = np.fromfile(funit, dtype=float, count=np.prod(
         image_shape), sep=' ').reshape(image_shape, order='F')
     funit.close()
     #
@@ -505,12 +504,12 @@ def read_image(ext=None, filename=None):
     #
     flux = 0.0
     if stokes:
-        for ix in arange(nx):
-            for iy in arange(ny):
+        for ix in np.arange(nx):
+            for iy in np.arange(ny):
                 flux = flux + image[ix, iy, 0, :]
     else:
-        for ix in arange(nx):
-            for iy in arange(ny):
+        for ix in np.arange(nx):
+            for iy in np.arange(ny):
                 flux = flux + image[ix, iy, :]
     flux = flux * sizepix_x * sizepix_y
     if not radian:
@@ -518,8 +517,8 @@ def read_image(ext=None, filename=None):
     #
     # Compute the x- and y- coordinates
     #
-    x = ((arange(nx) + 0.5) / (nx * 1.) - 0.5) * sizepix_x * nx
-    y = ((arange(ny) + 0.5) / (ny * 1.) - 0.5) * sizepix_y * ny
+    x = ((np.arange(nx) + 0.5) / (nx * 1.) - 0.5) * sizepix_x * nx
+    y = ((np.arange(ny) + 0.5) / (ny * 1.) - 0.5) * sizepix_y * ny
     #
     # Return all
     #

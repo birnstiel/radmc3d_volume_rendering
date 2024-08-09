@@ -1,10 +1,9 @@
 """
 Setup file for package `dsharp_helper`.
 """
-import setuptools  # NOQA
-# from numpy.distutils.core import Extension
 import pathlib
 import warnings
+from setuptools import setup
 
 PACKAGENAME = 'radmc3d_volume_rendering'
 
@@ -12,7 +11,6 @@ PACKAGENAME = 'radmc3d_volume_rendering'
 HERE = pathlib.Path(__file__).parent
 
 if __name__ == "__main__":
-    from numpy.distutils.core import setup
 
     extensions = []
 
@@ -49,5 +47,5 @@ if __name__ == "__main__":
     try:
         setup_function(extensions)
     except BaseException:
-        warnings.warn('Could not compile extensions, code will be slow')
+        warnings.warn('Could not install extensions, code will be slow')
         setup_function([])
