@@ -2,3 +2,4 @@ radmc3d_volume_rendering.egg-info/
 .ipynb_checkpoints/
 .DS_Store
 __pycache__/
+radmc3d_setup/
